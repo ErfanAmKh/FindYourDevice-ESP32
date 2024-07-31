@@ -1,31 +1,35 @@
 #include <Arduino.h>
 #include "driver/uart.h"
 
+#define KNOT_TO_KMH 1.852
+
 // What we wnat from gps---------------------------------------------------
-double Time = -1 ; 
-int hour = -1 ; 
-int minute = -1 ; 
-int second = -1 ; 
+double Time = -1 ; //hhmmss.sss
+int hour = -1 ; //hh
+int minute = -1 ; //mm
+int second = -1 ; //ss
 
-bool data_status = false ; 
+bool data_status = false ; // 1: valid    0: invalid
 
-double raw_lat = -1 ; 
-double lat1 = -1 ; 
-double lat2 = -1 ; 
+double raw_lat = -1 ; //ddmm.mmmm
+double lat1 = -1 ; //dd
+double lat2 = -1 ; //mm.mmmm
+double latitude = -1 ; 
 
-double raw_lon = -1 ; 
-double lon1 = -1 ; 
-double lon2 = -1 ; 
+double raw_lon = -1 ; //dddmm.mmmm
+double lon1 = -1 ; //ddd
+double lon2 = -1 ; //mm.mmmm
+double longitude = -1 ; 
 
 double speed_knot = -1 ; 
 double speed_kmh = -1 ; 
 
 double course = -361 ; 
 
-int date = -1 ; 
-int day = -1 ; 
-int month = -1 ; 
-int year = -1 ; 
+int date = -1 ; //ddmmyy
+int day = -1 ; //dd
+int month = -1 ; //mm
+int year = -1 ; //yy
 // ------------------------------------------------------------------------
 
 
@@ -58,6 +62,16 @@ void println(double input) ;
 void println(unsigned long input) ; 
 void receive_gps_message() ; 
 void update_rmc_data() ; 
+double decode_latitude() ; 
+double decode_longitude() ; 
+int decode_hour() ; 
+int decode_minute() ; 
+int decode_second() ; 
+double decode_speed() ; 
+int decode_day() ; 
+int decode_month() ; 
+int decode_year() ; 
+void all_data_print() ; 
 
 
 
@@ -71,20 +85,7 @@ void loop()
 {
   receive_gps_message() ; 
   update_rmc_data() ; 
-  print("Time: ") ;
-  print(Time) ; 
-  print("    Lat: ") ; 
-  print(raw_lat) ; 
-  print("    Lon: ") ;
-  print(raw_lon) ; 
-  print("    Date: ") ; 
-  print(date) ;
-  print("    Status: ") ; 
-  print(data_status) ; 
-  print("    Course: ") ; 
-  print(course) ; 
-  print("    Speed: ") ; 
-  println(speed_knot) ;   
+   all_data_print() ; 
   vTaskDelay(1200) ; 
 }
 
@@ -199,12 +200,12 @@ void receive_gps_message()
 
 void update_rmc_data() 
 {
-  char* x = "$GNRMC,144433.00,A,3547.96002,N,05123.44189,E,0.414,,270724,,,A,V*19\n$GNGGA,144433.00,3547.96002,N,05123.44189,E,1,04,4.88,1755.6,M,-18.1,M,,*5F\n$GNGSA,A,3,07,04,09,06,,,,,,,,,9.97,4.88,8.69,1*09\n$GNGSA,A,3,,,,,,,,,,,,,9.97,4.88,8.69,4*00\n$GPGSV,3,1,12,02,00,188,,03,62,157,,04,65,010,24,06,23,292,28,0*67\n$GPGSV,3,2,12,07,33,237,17,09,44,308,31,11,03,326,21,14,44,128,,0*69\n$GPGSV,3,3,12,16,41,096,09,26,26,054,08,30,11,241,09,31,15,048,,0*6C\n$BDGSV,1,1,01,10,,,31,0*76\n$GNTXT,1,1,01,ANTENNA OK*2B" ; 
+  // char* x = "woeuifiowufoiru$GNRMC,144433.00,A,3547.96002,N,05123.44189,E,0.414,,270724,,,A,V*19\n$GNGGA,144433.00,3547.96002,N,05123.44189,E,1,04,4.88,1755.6,M,-18.1,M,,*5F\n$GNGSA,A,3,07,04,09,06,,,,,,,,,9.97,4.88,8.69,1*09\n$GNGSA,A,3,,,,,,sdjlsjlkjvlkjfskv$BDGSV,1,1,01,10,,,31,0*76\n$GNTXT,1,1,01,ANTENNA OK*2Bewdfwaofjioaejrijealkjkdfjkld;;fjkldfjg;kldfjkldfsj" ; 
   for (int i=0 ; i<(int)length_gps ; i++)
   {
     if (rmc_state == 0)
     {
-      if ((char)x[i] == '$')
+      if ((char)uart_gps_rxbuf[i] == '$')
       {
         rmc_state++ ; 
       }
@@ -215,7 +216,7 @@ void update_rmc_data()
     }
     else if (rmc_state == 1)
     {
-      if ((char)x[i] == 'G')
+      if ((char)uart_gps_rxbuf[i] == 'G')
       {
         rmc_state++ ; 
       }
@@ -226,7 +227,7 @@ void update_rmc_data()
     }
     else if (rmc_state == 2)
     {
-      if ((char)x[i] == 'P' || (char)x[i] == 'N')
+      if ((char)uart_gps_rxbuf[i] == 'P' || (char)uart_gps_rxbuf[i] == 'N')
       {
         rmc_state++ ; 
       }
@@ -237,7 +238,7 @@ void update_rmc_data()
     }
     else if (rmc_state == 3)
     {
-      if ((char)x[i] == 'R')
+      if ((char)uart_gps_rxbuf[i] == 'R')
       {
         rmc_state++ ; 
       }
@@ -248,7 +249,7 @@ void update_rmc_data()
     }
     else if (rmc_state == 4)
     {
-      if ((char)x[i] == 'M')
+      if ((char)uart_gps_rxbuf[i] == 'M')
       {
         rmc_state++ ; 
       }
@@ -259,7 +260,7 @@ void update_rmc_data()
     }
     else if (rmc_state == 5)
     {
-      if ((char)x[i] == 'C')
+      if ((char)uart_gps_rxbuf[i] == 'C')
       {
         rmc_state++ ; 
       }
@@ -270,7 +271,7 @@ void update_rmc_data()
     }
     else if (rmc_state == 6)
     {
-      if ((char)x[i] == ',')
+      if ((char)uart_gps_rxbuf[i] == ',')
       {
         rmc_state++ ; 
       }
@@ -281,11 +282,11 @@ void update_rmc_data()
     }
     else if (rmc_state == 7)
     {
-      if ( isdigit((char)x[i]) )
+      if ( isdigit((char)uart_gps_rxbuf[i]) )
       {
         rmc_state++ ; 
         std::size_t offset = 0 ; 
-        Time = std::stod(&x[i], &offset) ; 
+        Time = std::stod(&uart_gps_rxbuf[i], &offset) ; 
         i = i + (int)offset - 1 ; 
       }
       else 
@@ -295,7 +296,7 @@ void update_rmc_data()
     }
     else if (rmc_state == 8)
     {
-      if ((char)x[i] == ',')
+      if ((char)uart_gps_rxbuf[i] == ',')
       {
         rmc_state++ ; 
       }
@@ -306,12 +307,12 @@ void update_rmc_data()
     }
     else if (rmc_state == 9)
     {
-      if ((char)x[i] == 'A')
+      if ((char)uart_gps_rxbuf[i] == 'A')
       {
         rmc_state++ ; 
         data_status = true ; 
       }
-      else if ((char)x[i] == 'V')
+      else if ((char)uart_gps_rxbuf[i] == 'V')
       {
         rmc_state++ ; 
         data_status = false ; 
@@ -324,7 +325,7 @@ void update_rmc_data()
     }
     else if (rmc_state == 10)
     {
-      if ((char)x[i] == ',')
+      if ((char)uart_gps_rxbuf[i] == ',')
       {
         rmc_state++ ; 
       }
@@ -335,11 +336,11 @@ void update_rmc_data()
     }
     else if (rmc_state == 11)
     {
-      if ( isdigit((char)x[i]) )
+      if ( isdigit((char)uart_gps_rxbuf[i]) )
       {
         rmc_state++ ; 
         std::size_t offset = 0 ; 
-        raw_lat = std::stod(&x[i], &offset) ; 
+        raw_lat = std::stod(&uart_gps_rxbuf[i], &offset) ; 
         i = i + (int)offset - 1 ; 
       }
       else 
@@ -349,7 +350,7 @@ void update_rmc_data()
     }
     else if (rmc_state == 12)
     {
-      if ((char)x[i] == ',')
+      if ((char)uart_gps_rxbuf[i] == ',')
       {
         rmc_state++ ; 
       }
@@ -360,7 +361,7 @@ void update_rmc_data()
     }
     else if (rmc_state == 13)
     {
-      if ((char)x[i] == 'N' || (char)x[i] == 'S')
+      if ((char)uart_gps_rxbuf[i] == 'N' || (char)uart_gps_rxbuf[i] == 'S')
       {
         rmc_state++ ; 
       }
@@ -371,7 +372,7 @@ void update_rmc_data()
     }
     else if (rmc_state == 14)
     {
-      if ((char)x[i] == ',')
+      if ((char)uart_gps_rxbuf[i] == ',')
       {
         rmc_state++ ; 
       }
@@ -382,11 +383,11 @@ void update_rmc_data()
     }
     else if (rmc_state == 15)
     {
-      if ( isdigit((char)x[i]) )
+      if ( isdigit((char)uart_gps_rxbuf[i]) )
       {
         rmc_state++ ; 
         std::size_t offset = 0 ; 
-        raw_lon = std::stod(&x[i], &offset) ; 
+        raw_lon = std::stod(&uart_gps_rxbuf[i], &offset) ; 
         i = i + (int)offset - 1 ; 
       }
       else 
@@ -396,7 +397,7 @@ void update_rmc_data()
     }
     else if (rmc_state == 16)
     {
-      if ((char)x[i] == ',')
+      if ((char)uart_gps_rxbuf[i] == ',')
       {
         rmc_state++ ; 
       }
@@ -407,7 +408,7 @@ void update_rmc_data()
     }
     else if (rmc_state == 17)
     {
-      if ((char)x[i] == 'E' || (char)x[i] == 'W')
+      if ((char)uart_gps_rxbuf[i] == 'E' || (char)uart_gps_rxbuf[i] == 'W')
       {
         rmc_state++ ; 
       }
@@ -418,7 +419,7 @@ void update_rmc_data()
     }
     else if (rmc_state == 18)
     {
-      if ((char)x[i] == ',')
+      if ((char)uart_gps_rxbuf[i] == ',')
       {
         rmc_state++ ; 
       }
@@ -429,11 +430,11 @@ void update_rmc_data()
     }
     else if (rmc_state == 19)
     {
-      if ( isdigit((char)x[i]) )
+      if ( isdigit((char)uart_gps_rxbuf[i]) )
       {
         rmc_state++ ; 
         std::size_t offset = 0 ; 
-        speed_knot = std::stod(&x[i], &offset) ; 
+        speed_knot = std::stod(&uart_gps_rxbuf[i], &offset) ; 
         i = i + (int)offset - 1 ; 
       }
       else 
@@ -445,7 +446,7 @@ void update_rmc_data()
     }
     else if (rmc_state == 20)
     {
-      if ((char)x[i] == ',')
+      if ((char)uart_gps_rxbuf[i] == ',')
       {
         rmc_state++ ; 
       }
@@ -456,11 +457,11 @@ void update_rmc_data()
     }
     else if (rmc_state == 21)
     {
-      if ( isdigit((char)x[i]) )
+      if ( isdigit((char)uart_gps_rxbuf[i]) )
       {
         rmc_state++ ; 
         std::size_t offset = 0 ; 
-        course = std::stod(&x[i], &offset) ; 
+        course = std::stod(&uart_gps_rxbuf[i], &offset) ; 
         i = i + (int)offset - 1 ; 
       }
       else 
@@ -472,7 +473,7 @@ void update_rmc_data()
     }
     else if (rmc_state == 22)
     {
-      if ((char)x[i] == ',')
+      if ((char)uart_gps_rxbuf[i] == ',')
       {
         rmc_state++ ; 
       }
@@ -483,11 +484,11 @@ void update_rmc_data()
     }
     else if (rmc_state == 23)
     {
-      if ( isdigit((char)x[i]) )
+      if ( isdigit((char)uart_gps_rxbuf[i]) )
       {
         rmc_state++ ; 
         std::size_t offset = 0 ; 
-        date = std::stoi(&x[i], &offset) ; 
+        date = std::stoi(&uart_gps_rxbuf[i], &offset) ; 
         i = i + (int)offset - 1 ; 
       }
       else 
@@ -512,5 +513,74 @@ void update_rmc_data()
   // println((char)uart_gps_rxbuf[3]) ; 
 }
 
+double decode_latitude()
+{
+  double temp = raw_lat * 10000 ; 
+  lat1 = ((int)(temp/1000000))%100 ; //dd
+  lat2 = (((int)(temp))%1000000)/10000.0 ; //mm.mmmm
+  latitude = lat1 + (lat2/60.0) ; 
+  return latitude ; 
+}
 
+double decode_longitude()
+{
+  double temp = raw_lon * 10000 ; 
+  lon1 = ((int)(temp/1000000))%1000 ; //ddd
+  lon2 = (((int)(temp))%1000000)/10000.0 ; //mm.mmmm
+  longitude = lon1 + (lon2/60.0) ; 
+  return longitude ; 
+}
+
+int decode_hour() 
+{
+  hour = ((int)(Time)/10000)%100 ; 
+  return hour ; 
+}
+
+int decode_minute() 
+{
+  minute = ((int)(Time)/100)%100 ; 
+  return minute ; 
+}
+
+int decode_second()
+{
+  second = ((int)(Time))%100 ; 
+  return second ; 
+}
+
+double decode_speed()
+{
+  speed_kmh = speed_knot * KNOT_TO_KMH ; 
+  return speed_kmh ; 
+}
+
+int decode_day()
+{
+  day = ((int)(date)/10000)%100 ; 
+  return day ; 
+}
+
+int decode_month() 
+{
+  month = ((int)(date)/100)%100 ; 
+  return month ;
+}
+
+int decode_year()
+{
+  year = ((int)(date))%100 ; 
+  return year ; 
+}
+
+void all_data_print()
+{
+  print("Time: ") ; print(decode_hour()) ; print(":") ;  print(decode_minute()) ; print(":") ;  print(decode_second()) ;
+  print("    Lat: ") ; print(decode_latitude()) ; 
+  print("    Lon: ") ; print(decode_longitude()) ; 
+  print("    Date: ") ; print(decode_month()) ; print("/") ; print(decode_day()) ; print("/") ; print("20") ; print(decode_year()) ; 
+  print("    Status: ") ; print(data_status) ; 
+  print("    Course: ") ; print(course) ; 
+  print("    Speed: ") ; println(decode_speed()) ;  
+}
 
