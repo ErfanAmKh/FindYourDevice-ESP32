@@ -41,21 +41,32 @@ char debug_array_double[buff_len] = {0} ;
 
 // GPS Communication
 static QueueHandle_t uart_gps_rxqueue;
-char *uart_gps_rxbuf = (char *)malloc(10);
+char *uart_gps_rxbuf = (char *)malloc(200);
 uart_event_t event_gps;
 size_t length_gps = 0;
 bool first_time = true ; 
 unsigned long gps_rec_time = 0 ;
 int rmc_state = 0 ; 
 
+// Sim800 Communication
+static QueueHandle_t uart_sim800_rxqueue;
+char *uart_sim800_rxbuf = (char *)malloc(10);
+uart_event_t event_sim800;
+size_t length_sim800 = 0;
+char sim800_array_int[buff_len] = {0} ; 
+char sim800_array_double[buff_len] = {0} ; 
+static const uint8_t sms_buff_len = 127;
+
 
 void uart_communication_setup() ; 
 void print(const char *input) ; 
+void print(String input) ; 
 void print(char input) ; 
 void print(int input) ; 
 void print(double input) ; 
 void print(unsigned long input) ;  
 void println(const char *input) ; 
+void println(String input) ; 
 void println(char input) ; 
 void println(int input) ; 
 void println(double input) ; 
@@ -72,6 +83,24 @@ int decode_day() ;
 int decode_month() ; 
 int decode_year() ; 
 void all_data_print() ; 
+void print_sim800(const char *input) ; 
+void print_sim800(String input) ; 
+void print_sim800(char input) ; 
+void print_sim800(int input) ; 
+void print_sim800(double input) ; 
+void print_sim800(unsigned long input) ;  
+void println_sim800(const char *input) ; 
+void println_sim800(String input) ; 
+void println_sim800(char input) ; 
+void println_sim800(int input) ; 
+void println_sim800(double input) ; 
+void println_sim800(unsigned long input) ; 
+void receive_sim800_message() ; 
+void communicate_with_sim800(char* command) ; 
+void communicate_with_sim800(String command) ; 
+void communicate_with_sim800(char command) ; 
+void check_sim800_initialization() ; 
+void send_sms(char* txt, String phone_number) ; 
 
 
 
@@ -79,14 +108,25 @@ void setup()
 {
   uart_communication_setup() ; 
   vTaskDelay(500) ; 
+  println("Uarts initialized...") ; 
+  check_sim800_initialization() ; 
+  vTaskDelay(500) ; 
+  println("sim800 checked...") ; 
+  vTaskDelay(500) ; 
+  char my_txt[sms_buff_len] = {} ; 
+  snprintf(&my_txt[0], sms_buff_len, "Long: %.4f   Lat: %.4f", decode_longitude(), decode_latitude()) ; 
+  String PN = "+989021229753" ; 
+  send_sms(my_txt, PN) ;
 }
 
 void loop() 
 {
   receive_gps_message() ; 
   update_rmc_data() ; 
-   all_data_print() ; 
+  // all_data_print() ; 
+  communicate_with_sim800("AT+COPS?") ; 
   vTaskDelay(1200) ; 
+
 }
 
 
@@ -117,11 +157,29 @@ void uart_communication_setup ()
   uart_set_pin(UART_NUM_0, 1, 3, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
   uart_param_config(UART_NUM_0, &uart_config_debug);
   uart_driver_install(UART_NUM_0, 1536, 1536, 40, &uart_debug_rxqueue, 0);
+
+
+
+  uart_config_t uart_config_sim800 = {
+    .baud_rate = 9600,
+    .data_bits = UART_DATA_8_BITS,
+    .parity = UART_PARITY_DISABLE,
+    .stop_bits = UART_STOP_BITS_1,
+    .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
+  };
+  uart_set_pin(UART_NUM_2, 17, 16, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+  uart_param_config(UART_NUM_2, &uart_config_sim800);
+  uart_driver_install(UART_NUM_2, 1536, 1536, 40, &uart_sim800_rxqueue, 0);
 }
 
 void print(const char *input)
 {
   uart_write_bytes(UART_NUM_0, input, strlen(input));
+}
+
+void print(String input)
+{
+  uart_write_bytes(UART_NUM_0, (void*)&input[0], input.length()) ; 
 }
 
 void print(char input)
@@ -150,6 +208,13 @@ void print(unsigned long input)
 void println(const char *input)
 {
   uart_write_bytes(UART_NUM_0, input, strlen(input));
+  const char* enter = "\n" ; 
+  uart_write_bytes(UART_NUM_0, enter, 1);
+}
+
+void println(String input)
+{
+  uart_write_bytes(UART_NUM_0, (void*)&input[0], input.length()) ; 
   const char* enter = "\n" ; 
   uart_write_bytes(UART_NUM_0, enter, 1);
 }
@@ -192,6 +257,8 @@ void receive_gps_message()
     if (event_gps.type == UART_DATA)
     {
       uart_get_buffered_data_len(UART_NUM_1, (size_t*)&length_gps);
+      print(" gps:     ") ; 
+      println((int)length_gps) ; 
       uart_read_bytes(UART_NUM_1, uart_gps_rxbuf, (uint32_t)length_gps, 2);
     }
     uart_flush(UART_NUM_1);
@@ -583,4 +650,158 @@ void all_data_print()
   print("    Course: ") ; print(course) ; 
   print("    Speed: ") ; println(decode_speed()) ;  
 }
+
+void print_sim800(const char *input)
+{
+  uart_write_bytes(UART_NUM_2, input, strlen(input));
+}
+
+void print_sim800(String input)
+{
+  uart_write_bytes(UART_NUM_2, (void*)&input[0], input.length()) ; 
+}
+
+void print_sim800(char input)
+{
+  uart_write_bytes(UART_NUM_2, (void *)&input, 1);
+}
+
+void print_sim800(int input)
+{
+  snprintf(&sim800_array_int[0], buff_len, "%d", input);
+  uart_write_bytes(UART_NUM_2, (void *)&sim800_array_int[0], strlen(sim800_array_int));
+}
+
+void print_sim800(double input)
+{
+  snprintf(&sim800_array_double[0], buff_len, "%.4f", input);
+  uart_write_bytes(UART_NUM_2, (void *)&sim800_array_double[0], strlen(sim800_array_double));
+}
+
+void print_sim800(unsigned long input)
+{
+  snprintf(&sim800_array_int[0], buff_len, "%d", input);
+  uart_write_bytes(UART_NUM_2, (void *)&sim800_array_int[0], strlen(sim800_array_int));
+}
+
+void println_sim800(const char *input)
+{
+  uart_write_bytes(UART_NUM_2, input, strlen(input));
+  const char* enter = "\n" ; 
+  uart_write_bytes(UART_NUM_2, enter, 1);
+}
+
+void println_sim800(String input)
+{
+  uart_write_bytes(UART_NUM_2, (void*)&input[0], input.length()) ; 
+  const char* enter = "\n" ; 
+  uart_write_bytes(UART_NUM_2, enter, 1);
+}
+
+void println_sim800(char input)
+{
+  uart_write_bytes(UART_NUM_2, (void *)&input, 1);
+  const char* enter = "\n" ; 
+  uart_write_bytes(UART_NUM_2, enter, 1);
+}
+
+void println_sim800(int input)
+{
+  snprintf(&sim800_array_int[0], buff_len, "%d", input);
+  uart_write_bytes(UART_NUM_2, (void *)&sim800_array_int[0], strlen(sim800_array_int));
+  const char* enter = "\n" ; 
+  uart_write_bytes(UART_NUM_2, enter, 1);
+}
+
+void println_sim800(unsigned long input)
+{
+  snprintf(&sim800_array_int[0], buff_len, "%d", input);
+  uart_write_bytes(UART_NUM_2, (void *)&sim800_array_int[0], strlen(sim800_array_int));
+  const char* enter = "\n" ; 
+  uart_write_bytes(UART_NUM_2, enter, 1);
+}
+
+void println_sim800(double input)
+{
+  snprintf(&sim800_array_double[0], buff_len, "%.4f", input);
+  uart_write_bytes(UART_NUM_2, (void *)&sim800_array_double[0], strlen(sim800_array_double));
+  const char* enter = "\n" ; 
+  uart_write_bytes(UART_NUM_2, enter, 1);
+}
+
+void receive_sim800_message()
+{
+  if (xQueueReceive(uart_sim800_rxqueue, (void *)&event_sim800, (TickType_t)1))
+  {
+    if (event_sim800.type == UART_DATA)
+    {
+      uart_get_buffered_data_len(UART_NUM_2, (size_t*)&length_sim800);
+      print("hey    ") ;
+      println((int)length_sim800) ;  
+      uart_read_bytes(UART_NUM_2, uart_sim800_rxbuf, (uint32_t)length_sim800, 2);
+    }
+    uart_flush(UART_NUM_2);
+  }
+}
+
+void communicate_with_sim800(char* command)
+{
+  println(&command[0]) ; 
+  println_sim800(&command[0]) ; 
+  vTaskDelay(100) ; 
+  receive_sim800_message() ; 
+  println(&uart_sim800_rxbuf[0]) ; 
+}
+
+void communicate_with_sim800(String command)
+{
+  println(command) ; 
+  println_sim800(command) ; 
+  vTaskDelay(100) ; 
+  receive_sim800_message() ; 
+  println(&uart_sim800_rxbuf[0]) ; 
+}
+
+void communicate_with_sim800(char command)
+{
+  println(command) ; 
+  println_sim800(command) ; 
+  vTaskDelay(100) ; 
+  receive_sim800_message() ; 
+  println(&uart_sim800_rxbuf[0]) ; 
+}
+
+void check_sim800_initialization()
+{
+  communicate_with_sim800("AT") ; 
+  vTaskDelay(100) ; 
+  communicate_with_sim800("AT+CSQ") ; 
+  vTaskDelay(100) ; 
+  communicate_with_sim800("AT+CCID") ; 
+  vTaskDelay(100) ; 
+  communicate_with_sim800("AT+CREG?") ; 
+  vTaskDelay(100) ; 
+  communicate_with_sim800("ATI") ; 
+  vTaskDelay(100) ; 
+  communicate_with_sim800("AT+CBC") ; 
+  vTaskDelay(100) ; 
+  communicate_with_sim800("AT+COPS?") ; 
+  vTaskDelay(100) ; 
+}
+
+void send_sms(char* txt, String phone_number)
+{
+  communicate_with_sim800("AT+CMGF=1") ; 
+  vTaskDelay(100) ; 
+  String temp = "AT+CMGS=\"" + phone_number + "\"" ; 
+  communicate_with_sim800(temp) ; 
+  vTaskDelay(100) ; 
+  communicate_with_sim800(&txt[0]) ; 
+  vTaskDelay(100) ; 
+  char ctrl_Z = 26 ; 
+  communicate_with_sim800(ctrl_Z) ; 
+  vTaskDelay(100) ; 
+}
+
+
 
