@@ -50,8 +50,8 @@ char *uart_gps_rxbuf = (char *)malloc(200);
 uart_event_t event_gps;
 size_t length_gps = 0;
 bool first_time = true ; 
-unsigned long gps_rec_time = 0 ;
 int rmc_state = 0 ; 
+unsigned long gps_time = 0 ; 
 
 // Sim800 Communication
 static QueueHandle_t uart_sim800_rxqueue;
@@ -61,10 +61,12 @@ size_t length_sim800 = 0;
 char sim800_array_int[buff_len] = {0} ; 
 char sim800_array_double[buff_len] = {0} ; 
 static const uint8_t sms_buff_len = 127;
-// String apn = "APN" ; 
-// String url = "http://httpbin.org/get" ; 
-// int get_state = 0 ; 
-// int post_state = 0 ; 
+unsigned long http_request_time = 0 ; 
+
+// General FSM
+unsigned long wake_up_time ; 
+bool location_reported = false ; 
+bool need_to_report = false ; 
 
 
 void uart_communication_setup() ; 
@@ -114,11 +116,14 @@ void config_gprs() ;
 void post(String letter) ; 
 bool check_code() ; 
 bool passcode_is_match(int counter) ; 
+void print_wakeup_reason() ; 
 
 
 
 void setup() 
 {
+  location_reported = false ; 
+  need_to_report = false ; 
   uart_communication_setup() ; 
   vTaskDelay(500) ; 
   println("Uarts initialized...") ; 
@@ -126,23 +131,69 @@ void setup()
   vTaskDelay(500) ; 
   println("sim800 checked...") ; 
   vTaskDelay(500) ; 
-  // char my_txt[sms_buff_len] = {} ; 
-  // snprintf(&my_txt[0], sms_buff_len, "Long: %.4f   Lat: %.4f", decode_longitude(), decode_latitude()) ; 
-  // String PN = "+989021229753" ; 
-  // send_sms(my_txt, PN) ;
-  // vTaskDelay(500) ; 
-  // println("text sent.") ; 
   config_gprs() ; 
+  println("gprs checked...") ; 
   vTaskDelay(500) ; 
+  print_wakeup_reason() ; 
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_33, 0) ; 
+  println("wake up config done...") ; 
+  vTaskDelay(500) ; 
+  wake_up_time = millis() ; 
 }
 
 void loop() 
 {
-  // receive_gps_message() ; 
-  // update_rmc_data() ; 
-  // all_data_print() ; 
-  // String my_letter = "Long: " +  String(decode_longitude()) + "   Lat: " + String(decode_latitude()) ; 
-  // post(my_letter) ; 
+  if (!need_to_report && millis()<(wake_up_time + 1200000))
+  {
+    if (check_code())
+    {
+      need_to_report = true ; 
+    }
+    else 
+    {
+      need_to_report = false ; 
+    }
+  }
+  else if ( (!need_to_report || location_reported) && millis()>(wake_up_time + 1200000))
+  {
+    println("going to sleep...") ; 
+    vTaskDelay(500) ; 
+    esp_deep_sleep_start() ; 
+  }
+  else if (!location_reported && need_to_report)
+  {
+    if (data_status)
+    {
+      char my_txt[sms_buff_len] = {} ; 
+      snprintf(&my_txt[0], sms_buff_len, "Long: %.4f   Lat: %.4f", decode_longitude(), decode_latitude()) ; 
+      String PN = "+989021229753" ; 
+      send_sms(my_txt, PN) ;
+      vTaskDelay(500) ; 
+      println("text sent.") ; 
+      location_reported = true ; 
+      String my_letter = "Long: " +  String(decode_longitude()) + "   Lat: " + String(decode_latitude()) ; 
+      post(my_letter) ; 
+      http_request_time = millis() ; 
+    }
+  }
+  else 
+  {
+    if (millis() > http_request_time + 20000)
+    {
+      http_request_time = millis() ; 
+      String my_letter = "Long: " +  String(decode_longitude()) + "   Lat: " + String(decode_latitude()) ; 
+      post(my_letter) ; 
+    }
+  }
+
+  if (millis() > (gps_time + 1200))
+  {
+    gps_time = millis() ; 
+    receive_gps_message() ; 
+    update_rmc_data() ; 
+    // all_data_print() ; 
+  }
+
   if (check_code())
   {
     println("YYYYYYYYYEEEEEEEEEEESSSSSSSS") ; 
@@ -158,7 +209,6 @@ void loop()
     println("YYYYYYYYYEEEEEEEEEEESSSSSSSS") ; 
     println("YYYYYYYYYEEEEEEEEEEESSSSSSSS") ; 
   }
-  vTaskDelay(2000) ; 
 
 }
 
@@ -167,16 +217,16 @@ void loop()
 
 void uart_communication_setup ()
 {
-//   uart_config_t uart_config_gps = {
-//     .baud_rate = 9600,
-//     .data_bits = UART_DATA_8_BITS,
-//     .parity = UART_PARITY_DISABLE,
-//     .stop_bits = UART_STOP_BITS_1,
-//     .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
-//   };
-//   uart_set_pin(UART_NUM_1, 4, 23, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-//   uart_param_config(UART_NUM_1, &uart_config_gps);
-//   uart_driver_install(UART_NUM_1, 1536, 1536, 40, &uart_gps_rxqueue, 0);
+  uart_config_t uart_config_gps = {
+    .baud_rate = 9600,
+    .data_bits = UART_DATA_8_BITS,
+    .parity = UART_PARITY_DISABLE,
+    .stop_bits = UART_STOP_BITS_1,
+    .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
+  };
+  uart_set_pin(UART_NUM_1, 4, 23, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+  uart_param_config(UART_NUM_1, &uart_config_gps);
+  uart_driver_install(UART_NUM_1, 1536, 1536, 40, &uart_gps_rxqueue, 0);
 
 
 
@@ -766,64 +816,64 @@ void receive_sim800_message()
 {
   if (xQueueReceive(uart_sim800_rxqueue, (void *)&event_sim800, (TickType_t)1))
   {
-    println("in queue receive if") ; 
+    // println("in queue receive if") ; 
     if (event_sim800.type == UART_DATA)
     {
-      println("in event if") ; 
+      // println("in event if") ; 
       uart_get_buffered_data_len(UART_NUM_2, (size_t*)&length_sim800);
-      print("after buffer length: ") ; 
-      println((int)length_sim800) ; 
+      // print("after buffer length: ") ; 
+      // println((int)length_sim800) ; 
       uart_read_bytes(UART_NUM_2, uart_sim800_rxbuf, (uint32_t)length_sim800, 2);
-      print("after reading...") ; 
+      // print("after reading...") ; 
     }
     uart_flush(UART_NUM_2);
-    print("after flush...") ; 
+    // print("after flush...") ; 
   }
 }
 
 void communicate_with_sim800(char* command, TickType_t del = 100)
 {
-  print("The command is: ") ; 
-  println(&command[0]) ; 
-  println("before writing...") ; 
+  // print("The command is: ") ; 
+  // println(&command[0]) ; 
+  // println("before writing...") ; 
   println_sim800(&command[0]) ; 
-  println("after writing...") ; 
+  // println("after writing...") ; 
   vTaskDelay(del) ; 
-  println("after del...") ; 
+  // println("after del...") ; 
   receive_sim800_message() ; 
-  println("after receiving...") ; 
-  println(&uart_sim800_rxbuf[0]) ; 
-  println("after printting...") ; 
+  // println("after receiving...") ; 
+  // println(&uart_sim800_rxbuf[0]) ; 
+  // println("after printting...") ; 
 }
 
 void communicate_with_sim800(String command, TickType_t del = 100)
 {
-  print("The command is: ") ; 
-  println(command) ; 
-  println("before writing...") ; 
+  // print("The command is: ") ; 
+  // println(command) ; 
+  // println("before writing...") ; 
   println_sim800(&command[0]) ; 
-  println("after writing...") ;
+  // println("after writing...") ;
   vTaskDelay(del) ; 
-  println("after del...") ; 
+  // println("after del...") ; 
   receive_sim800_message() ; 
-  println("after receiving...") ; 
-  println(&uart_sim800_rxbuf[0]) ; 
-  println("after printting...") ; 
+  // println("after receiving...") ; 
+  // println(&uart_sim800_rxbuf[0]) ; 
+  // println("after printting...") ; 
 }
 
 void communicate_with_sim800(char command, TickType_t del = 100)
 {
-  print("The command is: ") ; 
-  println(command) ; 
-  println("before writing...") ; 
+  // print("The command is: ") ; 
+  // println(command) ; 
+  // println("before writing...") ; 
   println_sim800(command) ; 
-  println("after writing...") ;
+  // println("after writing...") ;
   vTaskDelay(del) ; 
-  println("after del...") ; 
+  // println("after del...") ; 
   receive_sim800_message() ; 
-  println("after receiving...") ; 
-  println(&uart_sim800_rxbuf[0]) ; 
-  println("after printting...") ;
+  // println("after receiving...") ; 
+  // println(&uart_sim800_rxbuf[0]) ; 
+  // println("after printting...") ;
 }
 
 void check_sim800_initialization()
@@ -903,10 +953,10 @@ bool check_code()
   println_sim800("AT+CMGL=\"REC UNREAD\"") ; 
   vTaskDelay(5000) ; 
   receive_sim800_message() ; 
-  print("before for:  ") ; 
-  println((int)(length_sim800)) ; 
-  print("  Buffer:  ") ; 
-  println(&uart_sim800_rxbuf[0]) ; 
+  // print("before for:  ") ; 
+  // println((int)(length_sim800)) ; 
+  // print("  Buffer:  ") ; 
+  // println(&uart_sim800_rxbuf[0]) ; 
   for (int i=0 ; i<(((int)length_sim800)-8) ; i++)
   {
     if (passcode_is_match(i))
@@ -929,7 +979,21 @@ bool passcode_is_match(int counter)
   }
 }
 
+void print_wakeup_reason() {
+  esp_sleep_wakeup_cause_t wakeup_reason;
 
+  wakeup_reason = esp_sleep_get_wakeup_cause();
+
+  switch(wakeup_reason)
+  {
+    case ESP_SLEEP_WAKEUP_EXT0 : println("Wakeup caused by external signal using RTC_IO"); break;
+    case ESP_SLEEP_WAKEUP_EXT1 : println("Wakeup caused by external signal using RTC_CNTL"); break;
+    case ESP_SLEEP_WAKEUP_TIMER : println("Wakeup caused by timer"); break;
+    case ESP_SLEEP_WAKEUP_TOUCHPAD : println("Wakeup caused by touchpad"); break;
+    case ESP_SLEEP_WAKEUP_ULP : println("Wakeup caused by ULP program"); break;
+    default : println("default accured"); break;
+  }
+}
 
 
 
