@@ -35,6 +35,9 @@ int year = -1 ; //yy
 
 // Print & Debug
 static QueueHandle_t uart_debug_rxqueue;
+char *uart_serial_rxbuf = (char *)malloc(10);
+uart_event_t event_serial;
+size_t length_serial = 0;
 static const uint8_t buff_len = 127;
 char debug_array_int[buff_len] = {0} ; 
 char debug_array_double[buff_len] = {0} ; 
@@ -56,6 +59,10 @@ size_t length_sim800 = 0;
 char sim800_array_int[buff_len] = {0} ; 
 char sim800_array_double[buff_len] = {0} ; 
 static const uint8_t sms_buff_len = 127;
+// String apn = "APN" ; 
+// String url = "http://httpbin.org/get" ; 
+// int get_state = 0 ; 
+// int post_state = 0 ; 
 
 
 void uart_communication_setup() ; 
@@ -96,11 +103,13 @@ void println_sim800(int input) ;
 void println_sim800(double input) ; 
 void println_sim800(unsigned long input) ; 
 void receive_sim800_message() ; 
-void communicate_with_sim800(char* command) ; 
-void communicate_with_sim800(String command) ; 
-void communicate_with_sim800(char command) ; 
+void communicate_with_sim800(char* command, TickType_t del) ; 
+void communicate_with_sim800(String command, TickType_t del) ; 
+void communicate_with_sim800(char command, TickType_t del) ; 
 void check_sim800_initialization() ; 
 void send_sms(char* txt, String phone_number) ; 
+void config_gprs() ; 
+void post(String letter) ; 
 
 
 
@@ -113,19 +122,24 @@ void setup()
   vTaskDelay(500) ; 
   println("sim800 checked...") ; 
   vTaskDelay(500) ; 
-  char my_txt[sms_buff_len] = {} ; 
-  snprintf(&my_txt[0], sms_buff_len, "Long: %.4f   Lat: %.4f", decode_longitude(), decode_latitude()) ; 
-  String PN = "+989021229753" ; 
-  send_sms(my_txt, PN) ;
+  // char my_txt[sms_buff_len] = {} ; 
+  // snprintf(&my_txt[0], sms_buff_len, "Long: %.4f   Lat: %.4f", decode_longitude(), decode_latitude()) ; 
+  // String PN = "+989021229753" ; 
+  // send_sms(my_txt, PN) ;
+  // vTaskDelay(500) ; 
+  // println("text sent.") ; 
+  config_gprs() ; 
+  vTaskDelay(500) ; 
 }
 
 void loop() 
 {
-  receive_gps_message() ; 
-  update_rmc_data() ; 
+  // receive_gps_message() ; 
+  // update_rmc_data() ; 
   // all_data_print() ; 
-  communicate_with_sim800("AT+COPS?") ; 
-  vTaskDelay(1200) ; 
+  String my_letter = "Long: " +  String(decode_longitude()) + "   Lat: " + String(decode_latitude()) ; 
+  post(my_letter) ; 
+  vTaskDelay(10000) ; 
 
 }
 
@@ -134,16 +148,16 @@ void loop()
 
 void uart_communication_setup ()
 {
-  uart_config_t uart_config_gps = {
-    .baud_rate = 9600,
-    .data_bits = UART_DATA_8_BITS,
-    .parity = UART_PARITY_DISABLE,
-    .stop_bits = UART_STOP_BITS_1,
-    .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
-  };
-  uart_set_pin(UART_NUM_1, 4, 2, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-  uart_param_config(UART_NUM_1, &uart_config_gps);
-  uart_driver_install(UART_NUM_1, 1536, 1536, 40, &uart_gps_rxqueue, 0);
+//   uart_config_t uart_config_gps = {
+//     .baud_rate = 9600,
+//     .data_bits = UART_DATA_8_BITS,
+//     .parity = UART_PARITY_DISABLE,
+//     .stop_bits = UART_STOP_BITS_1,
+//     .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
+//   };
+//   uart_set_pin(UART_NUM_1, 4, 23, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+//   uart_param_config(UART_NUM_1, &uart_config_gps);
+//   uart_driver_install(UART_NUM_1, 1536, 1536, 40, &uart_gps_rxqueue, 0);
 
 
 
@@ -257,8 +271,8 @@ void receive_gps_message()
     if (event_gps.type == UART_DATA)
     {
       uart_get_buffered_data_len(UART_NUM_1, (size_t*)&length_gps);
-      print(" gps:     ") ; 
-      println((int)length_gps) ; 
+      // print(" gps:     ") ; 
+      // println((int)length_gps) ; 
       uart_read_bytes(UART_NUM_1, uart_gps_rxbuf, (uint32_t)length_gps, 2);
     }
     uart_flush(UART_NUM_1);
@@ -733,42 +747,64 @@ void receive_sim800_message()
 {
   if (xQueueReceive(uart_sim800_rxqueue, (void *)&event_sim800, (TickType_t)1))
   {
+    println("in queue receive if") ; 
     if (event_sim800.type == UART_DATA)
     {
+      println("in event if") ; 
       uart_get_buffered_data_len(UART_NUM_2, (size_t*)&length_sim800);
-      print("hey    ") ;
-      println((int)length_sim800) ;  
+      print("after buffer length: ") ; 
+      println((int)length_sim800) ; 
       uart_read_bytes(UART_NUM_2, uart_sim800_rxbuf, (uint32_t)length_sim800, 2);
+      print("after reading...") ; 
     }
     uart_flush(UART_NUM_2);
+    print("after flush...") ; 
   }
 }
 
-void communicate_with_sim800(char* command)
+void communicate_with_sim800(char* command, TickType_t del = 100)
 {
+  print("The command is: ") ; 
   println(&command[0]) ; 
+  println("before writing...") ; 
   println_sim800(&command[0]) ; 
-  vTaskDelay(100) ; 
+  println("after writing...") ; 
+  vTaskDelay(del) ; 
+  println("after del...") ; 
   receive_sim800_message() ; 
+  println("after receiving...") ; 
   println(&uart_sim800_rxbuf[0]) ; 
+  println("after printting...") ; 
 }
 
-void communicate_with_sim800(String command)
+void communicate_with_sim800(String command, TickType_t del = 100)
 {
+  print("The command is: ") ; 
   println(command) ; 
-  println_sim800(command) ; 
-  vTaskDelay(100) ; 
+  println("before writing...") ; 
+  println_sim800(&command[0]) ; 
+  println("after writing...") ;
+  vTaskDelay(del) ; 
+  println("after del...") ; 
   receive_sim800_message() ; 
+  println("after receiving...") ; 
   println(&uart_sim800_rxbuf[0]) ; 
+  println("after printting...") ; 
 }
 
-void communicate_with_sim800(char command)
+void communicate_with_sim800(char command, TickType_t del = 100)
 {
+  print("The command is: ") ; 
   println(command) ; 
+  println("before writing...") ; 
   println_sim800(command) ; 
-  vTaskDelay(100) ; 
+  println("after writing...") ;
+  vTaskDelay(del) ; 
+  println("after del...") ; 
   receive_sim800_message() ; 
+  println("after receiving...") ; 
   println(&uart_sim800_rxbuf[0]) ; 
+  println("after printting...") ;
 }
 
 void check_sim800_initialization()
@@ -803,5 +839,143 @@ void send_sms(char* txt, String phone_number)
   vTaskDelay(100) ; 
 }
 
+void config_gprs()
+{
+  communicate_with_sim800("AT+SAPBR=3,1,Contype,GPRS", 250) ; 
+  vTaskDelay(2000) ; 
+  communicate_with_sim800("AT+SAPBR=3,1,APN,APN", 250) ; 
+  vTaskDelay(2000) ; 
+}
+
+void post(String letter)
+{
+  communicate_with_sim800("AT+SAPBR=1,1", 250);
+  vTaskDelay(2000) ; 
+  communicate_with_sim800("AT+SAPBR=2,1", 250);
+  vTaskDelay(2000) ; 
+  communicate_with_sim800("AT+HTTPINIT", 250);
+  vTaskDelay(2000) ; 
+  communicate_with_sim800("AT+HTTPPARA=CID,1", 250);
+  vTaskDelay(2000) ; 
+  communicate_with_sim800("AT+HTTPPARA=URL,http://httpbin.org/get" , 250);
+  vTaskDelay(2000) ; 
+  communicate_with_sim800("AT+HTTPPARA=CONTENT,application/x-www-form-urlencoded", 250);
+  vTaskDelay(2000) ; 
+  communicate_with_sim800("AT+HTTPDATA=192,5000", 250);
+  vTaskDelay(100) ; 
+  communicate_with_sim800(letter, 50);
+  vTaskDelay(10000) ; 
+  communicate_with_sim800("AT+HTTPACTION=1", 250);
+  vTaskDelay(2000) ; 
+  communicate_with_sim800("AT+HTTPREAD", 15000);
+  vTaskDelay(2000) ; 
+  // receive_sim800_message() ; 
+  // println(&uart_sim800_rxbuf[0]) ; 
+  communicate_with_sim800("AT+HTTPTERM", 250);
+  vTaskDelay(2000) ; 
+  communicate_with_sim800("AT+SAPBR=0,1", 250);
+  vTaskDelay(2000) ; 
+}
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// #include <Arduino.h>
+// int state = 0 ; 
+// int temp_time = 0 ; 
+
+
+// // void IRAM_ATTR my_fcn () ; 
+// void test_sim800_module() ; 
+// void updateSerial() ; 
+// void send_SMS() ; 
+
+
+// void setup() {
+//   Serial.begin(115200);
+//   Serial2.begin(9600);
+//   delay(3000);
+//  test_sim800_module();
+// //  send_SMS();
+// //  pinMode(4, INPUT) ; 
+//   // attachInterrupt(digitalPinToInterrupt(4), my_fcn, FALLING);
+// }
+// void loop() {
+//   updateSerial();
+// //  Serial.println(state) ; 
+// }
+
+// // void IRAM_ATTR my_fcn ()
+// // {
+// //   state++ ; 
+// // }
+
+
+// void test_sim800_module()
+// {
+//   Serial2.println("AT");
+//   updateSerial();
+//   Serial.println();
+//   Serial2.println("AT+CSQ");
+//   updateSerial();
+//   Serial2.println("AT+CCID");
+//   updateSerial();
+//   Serial2.println("AT+CREG?");
+//   updateSerial();
+//   Serial2.println("ATI");
+//   updateSerial();
+//   Serial2.println("AT+CBC");
+//   updateSerial();
+// }
+
+
+// void updateSerial()
+// {
+// //  delay(500);
+//   while (Serial.available())
+//   {
+//     Serial2.write(Serial.read());//Forward what Serial received to Software Serial Port
+//   }
+//   while (Serial2.available())
+//   {
+//   Serial.write(Serial2.read());//Forward what Software Serial received to Serial Port
+//   }
+// }
+
+
+// void send_SMS()
+// {
+// //  Serial2.println("AT+CSCS=\"GSM\"") ;
+// //  updateSerial() ;  
+//   Serial2.println("AT+CMGF=1"); 
+//   updateSerial();
+//   Serial2.println("AT+CMGS=\"+989021229753\"");
+//   updateSerial();
+//   Serial2.print("Testing SMS sim800"); 
+//   updateSerial();
+//   Serial.println();
+//   Serial.println("Message Sent");
+//   Serial2.write(26);
+// }
