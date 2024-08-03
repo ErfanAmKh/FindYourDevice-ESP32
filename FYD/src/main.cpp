@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include "driver/uart.h"
 
+const char passcode[8] = {'A', 'B', 'C', 'D', '1', '2', '3', '4'} ; 
+
 #define KNOT_TO_KMH 1.852
 
 // What we wnat from gps---------------------------------------------------
@@ -110,6 +112,8 @@ void check_sim800_initialization() ;
 void send_sms(char* txt, String phone_number) ; 
 void config_gprs() ; 
 void post(String letter) ; 
+bool check_code() ; 
+bool passcode_is_match(int counter) ; 
 
 
 
@@ -137,9 +141,24 @@ void loop()
   // receive_gps_message() ; 
   // update_rmc_data() ; 
   // all_data_print() ; 
-  String my_letter = "Long: " +  String(decode_longitude()) + "   Lat: " + String(decode_latitude()) ; 
-  post(my_letter) ; 
-  vTaskDelay(10000) ; 
+  // String my_letter = "Long: " +  String(decode_longitude()) + "   Lat: " + String(decode_latitude()) ; 
+  // post(my_letter) ; 
+  if (check_code())
+  {
+    println("YYYYYYYYYEEEEEEEEEEESSSSSSSS") ; 
+    println("YYYYYYYYYEEEEEEEEEEESSSSSSSS") ; 
+    println("YYYYYYYYYEEEEEEEEEEESSSSSSSS") ; 
+    println("YYYYYYYYYEEEEEEEEEEESSSSSSSS") ; 
+    println("YYYYYYYYYEEEEEEEEEEESSSSSSSS") ; 
+    println("YYYYYYYYYEEEEEEEEEEESSSSSSSS") ; 
+    println("YYYYYYYYYEEEEEEEEEEESSSSSSSS") ; 
+    println("YYYYYYYYYEEEEEEEEEEESSSSSSSS") ; 
+    println("YYYYYYYYYEEEEEEEEEEESSSSSSSS") ; 
+    println("YYYYYYYYYEEEEEEEEEEESSSSSSSS") ; 
+    println("YYYYYYYYYEEEEEEEEEEESSSSSSSS") ; 
+    println("YYYYYYYYYEEEEEEEEEEESSSSSSSS") ; 
+  }
+  vTaskDelay(2000) ; 
 
 }
 
@@ -877,7 +896,38 @@ void post(String letter)
   vTaskDelay(2000) ; 
 }
 
+bool check_code() 
+{
+  communicate_with_sim800("AT+CMGF=1", 250) ; 
+  vTaskDelay(1000) ; 
+  println_sim800("AT+CMGL=\"REC UNREAD\"") ; 
+  vTaskDelay(5000) ; 
+  receive_sim800_message() ; 
+  print("before for:  ") ; 
+  println((int)(length_sim800)) ; 
+  print("  Buffer:  ") ; 
+  println(&uart_sim800_rxbuf[0]) ; 
+  for (int i=0 ; i<(((int)length_sim800)-8) ; i++)
+  {
+    if (passcode_is_match(i))
+    {
+      return true ; 
+    }
+  }
+  return false ; 
+}
 
+bool passcode_is_match(int counter)
+{
+  if ( ((char)uart_sim800_rxbuf[counter]==passcode[0]) && ((char)uart_sim800_rxbuf[counter+1]==passcode[1]) && ((char)uart_sim800_rxbuf[counter+2]==passcode[2]) && ((char)uart_sim800_rxbuf[counter+3]==passcode[3]) && ((char)uart_sim800_rxbuf[counter+4]==passcode[4]) && ((char)uart_sim800_rxbuf[counter+5]==passcode[5] && ((char)uart_sim800_rxbuf[counter+6]==passcode[6]) && ((char)uart_sim800_rxbuf[counter+7]==passcode[7])) )
+  {
+    return true ; 
+  }
+  else 
+  {
+    return false ; 
+  }
+}
 
 
 
