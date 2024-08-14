@@ -4,6 +4,7 @@
 const char passcode[8] = {'A', 'B', 'C', 'D', '1', '2', '3', '4'} ; 
 
 #define KNOT_TO_KMH 1.852
+#define WAKEUP_TIMEOUT 1200000                 // 1200000
 
 // What we wnat from gps---------------------------------------------------
 double Time = -1 ; //hhmmss.sss
@@ -46,7 +47,7 @@ char debug_array_double[buff_len] = {0} ;
 
 // GPS Communication
 static QueueHandle_t uart_gps_rxqueue;
-char *uart_gps_rxbuf = (char *)malloc(200);
+char *uart_gps_rxbuf = (char *)malloc(10);
 uart_event_t event_gps;
 size_t length_gps = 0;
 bool first_time = true ; 
@@ -143,8 +144,10 @@ void setup()
 
 void loop() 
 {
-  if (!need_to_report && millis()<(wake_up_time + 1200000))
+  if (!need_to_report && millis()<(wake_up_time + WAKEUP_TIMEOUT))
   {
+    println("state 1") ; 
+    vTaskDelay(10) ; 
     if (check_code())
     {
       need_to_report = true ; 
@@ -154,7 +157,7 @@ void loop()
       need_to_report = false ; 
     }
   }
-  else if ( (!need_to_report || location_reported) && millis()>(wake_up_time + 1200000))
+  else if ( (!need_to_report || location_reported) && millis()>(wake_up_time + WAKEUP_TIMEOUT))
   {
     println("going to sleep...") ; 
     vTaskDelay(500) ; 
@@ -162,8 +165,12 @@ void loop()
   }
   else if (!location_reported && need_to_report)
   {
+    println("state 2") ; 
+    vTaskDelay(10) ; 
     if (data_status)
     {
+      println("state 3") ; 
+      vTaskDelay(10) ; 
       char my_txt[sms_buff_len] = {} ; 
       snprintf(&my_txt[0], sms_buff_len, "Long: %.4f   Lat: %.4f", decode_longitude(), decode_latitude()) ; 
       String PN = "+989021229753" ; 
@@ -178,6 +185,8 @@ void loop()
   }
   else 
   {
+    println("state 4") ; 
+    vTaskDelay(10) ; 
     if (millis() > http_request_time + 20000)
     {
       http_request_time = millis() ; 
@@ -191,7 +200,7 @@ void loop()
     gps_time = millis() ; 
     receive_gps_message() ; 
     update_rmc_data() ; 
-    // all_data_print() ; 
+    all_data_print() ; 
   }
 
   if (check_code())
@@ -912,7 +921,7 @@ void config_gprs()
 {
   communicate_with_sim800("AT+SAPBR=3,1,Contype,GPRS", 250) ; 
   vTaskDelay(2000) ; 
-  communicate_with_sim800("AT+SAPBR=3,1,APN,APN", 250) ; 
+  communicate_with_sim800("AT+SAPBR=3,1,APN,mcinet", 250) ; 
   vTaskDelay(2000) ; 
 }
 
